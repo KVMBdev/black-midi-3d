@@ -1,0 +1,983 @@
+<!DOCTYPE html><html lang="en"><head><meta http-equiv="x-dns-prefetch-control" content="off"><script src="https://puc.poecdn.net/authenticated_preview_page/standard.3ef2c256959faf5a756d.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Black MIDI Visualizer</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght=300;400;500;700&amp;family=Orbitron:wght=400;600;700;900&amp;display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<style>
+:root {
+  --bg-primary: #030305;
+  --bg-secondary: #0a0a12;
+  --bg-tertiary: #aaaaaa;
+  --text-primary: #ffffff;
+  --text-secondary: #ffffff;
+  --text-dim: #ffffff;
+  --accent-1: #bbbbbb;
+  --accent-2: #bbbbbb;
+  --accent-3: #bbbbbb;
+  --border-color: #333333;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'JetBrains Mono',monospace; background:var(--bg-primary); color:var(--text-primary); overflow:hidden; height:100vh; width:100vw; }
+.app { display:flex; flex-direction:column; height:100vh; width:100vw; position: relative; }
+.screen { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
+.screen.active { display: flex; flex-direction: column; }
+#uiScreen { background: var(--bg-primary); align-items: center; justify-content: center; z-index: 20; }
+#playScreen { background: #000; z-index: 10; }
+.ui-panel { background: rgba(10,10,18,0.85); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 15px; width: 450px; box-shadow: 0 0 30px rgba(0, 243, 255, 0.15); }
+.logo-large { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 32px; letter-spacing: 2px; background: linear-gradient(135deg, var(--accent-1), var(--accent-3), var(--accent-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; margin-bottom: 10px; white-space: nowrap; }
+.slider-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary); }
+.slider-row span:first-child { width: 140px; }
+.slider-row input[type=range] { flex: 1; margin: 0 10px; accent-color: var(--accent-2); cursor: pointer; }
+.val-disp { width: 60px; text-align: right; color: var(--accent-1); font-weight: bold; }
+.action-btns { display: flex; gap: 10px; margin-top: 15px; }
+.btn { display:inline-flex; align-items:center; justify-content: center; gap:8px; padding:10px 15px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-tertiary); color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:12px; font-weight: bold; cursor:pointer; transition:all .2s; flex: 1; }
+.btn:hover { border-color:var(--accent-2); }
+.btn-accent { background:linear-gradient(135deg,var(--accent-1),var(--accent-3)); border-color:transparent; color:#fff; }
+.btn-accent:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sf2 { background:linear-gradient(135deg, #bbbbbb, #bbbbbb); border-color:transparent; color:#fff; }
+#cvsWrap { flex:1; position:relative; overflow:hidden; width: 100%; height: 100%; }
+#vizCanvas { display:block; position:absolute; top:0; left:0; width:100%; height:100%; outline: none;}
+.hud-bottom-left { position: absolute; bottom: 20px; left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; background: rgba(10,10,18,0.75); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); pointer-events: none; z-index: 30; }
+.st { display:flex; align-items:center; gap:6px; }
+.sv { color:var(--accent-2); font-weight:600; text-shadow: 0 0 5px var(--accent-2); }
+.sl { color:var(--text-dim); width: 60px; }
+.hud-bottom-right { position: absolute; bottom: 20px; right: 20px; z-index: 30; }
+.btn-exit { width: 50px; height: 50px; border-radius: 14px; background: rgba(10,10,18,0.8); border: 1px solid var(--border-color); color: var(--accent-2); display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+.btn-exit:hover { background: rgba(20,20,30,0.9); border-color: var(--accent-1); color: #fff; box-shadow: 0 0 15px rgba(255,255,255,0.2); }
+#fileInput, #sf2Input { display:none; }
+</style>
+<script src="https://puc.poecdn.net/authenticated_preview_page/disableWebRTC.9710cebe07429a9e8e06.js"></script><meta name="x-poe-allow-downloads" content="true"><meta name="x-poe-datastore-behavior" content="local_only"><script src="https://puc.poecdn.net/authenticated_preview_page/miniApp.82c63c9c395e319080fa.js"></script><script src="https://puc.poecdn.net/authenticated_preview_page/console.564bd151389dfff6cb98.js"></script><script src="https://puc.poecdn.net/authenticated_preview_page/interceptAndBubbleLinkClicks.0565894e0316ba77c36c.js"></script></head>
+<body>
+<div class="app">
+  <div id="uiScreen" class="screen active">
+    <div class="ui-panel" id="uiPanel">
+      <div class="logo-large">Black MIDI Visualizer</div>
+      <div class="slider-row">
+        <span>Pixel Ratio:</span>
+        <input type="range" id="pxRatioSlider" min="0.8" max="4" step="0.1" value="1.5">
+        <span id="pxRatioVal" class="val-disp">1.5</span>
+      </div>
+      <div class="slider-row">
+        <span>Z Speed:</span>
+        <input type="range" id="zSlider" min="3" max="100" step="0.1" value="10">
+        <span id="zVal" class="val-disp">10.0x</span>
+      </div>
+      <div class="slider-row">
+        <span>Render Dist:</span>
+        <input type="range" id="dSlider" min="1" max="30" step="1" value="5">
+        <span id="dVal" class="val-disp">5s</span>
+      </div>
+      <div class="slider-row">
+        <span>SF2 Buffer Chunk:</span>
+        <input type="range" id="chunkSlider" min="0.025" max="0.4" step="0.001" value="0.192">
+        <span id="chunkVal" class="val-disp">0.192s</span>
+      </div>
+      <div class="slider-row">
+        <span>Max Polyphony:</span>
+        <input type="range" id="polySlider" min="86" max="1024" step="1" value="128">
+        <span id="polyVal" class="val-disp">128</span>
+      </div>
+      <div class="slider-row">
+        <span>Max Instances:</span>
+        <input type="range" id="maxInstSlider" min="16000" max="1280000" step="1000" value="64000">
+        <span id="maxInstVal" class="val-disp">64000</span>
+      </div>
+      <div class="action-btns">
+        <input type="file" id="sf2Input" accept=".sf2">
+        <button class="btn btn-sf2" id="loadSf2Btn"><i class="fas fa-file-audio"></i> <span id="sf2Label">LOAD SF2</span></button>
+        <input type="file" id="fileInput" accept=".mid,.midi">
+        <button class="btn" id="loadBtn"><i class="fas fa-folder-open"></i> LOAD MIDI</button>
+      </div>
+      <div class="action-btns">
+        <button class="btn btn-accent" id="startPlayBtn" disabled=""><i class="fas fa-play"></i> START PLAY</button>
+      </div>
+    </div>
+  </div>
+  <div id="playScreen" class="screen">
+    <div id="cvsWrap">
+      <div id="vizCanvas"></div>
+    </div>
+    <div class="hud-bottom-left">
+      <div class="st"><span class="sl">SF2:</span><span class="sv" id="sSf2">None</span></div>
+      <div class="st"><span class="sl">FPS:</span><span class="sv" id="sFPS">0</span></div>
+      <div class="st"><span class="sl">Poly:</span><span class="sv" id="sPoly">0</span></div>
+      <div class="st"><span class="sl">Notes:</span><span class="sv" id="sN">0 / 0</span></div>
+      <div class="st"><span class="sl">Tracks:</span><span class="sv" id="sT">0</span></div>
+      <div class="st"><span class="sl">BPM:</span><span class="sv" id="sB">120</span></div>
+      <div class="st"><span class="sl">Time:</span><span class="sv" id="sD">0:00 / 0:00</span></div>
+    </div>
+    <div class="hud-bottom-right">
+      <button id="exitBtn" class="btn-exit" title="Exit to UI"><i class="fas fa-sign-out-alt"></i></button>
+    </div>
+  </div>
+</div>
+<script>
+class NoteBuffer {
+    constructor(capacity = 840000) {
+        this.capacity = capacity;
+        this.length = 0;
+        this.startTick = new Int32Array(capacity);
+        this.durationTrack = new Uint32Array(capacity);
+        this.packedInfo = new Uint32Array(capacity);
+    }
+    push(p, v, ch, tr, pr, b, sT, eT) {
+        if (this.length >= this.capacity) {
+            this.capacity = Math.floor(this.capacity * 1.5);
+            const resize = (arr, T) => { const n = new T(this.capacity); n.set(arr); return n; };
+            this.startTick = resize(this.startTick, Int32Array);
+            this.durationTrack = resize(this.durationTrack, Uint32Array);
+            this.packedInfo = resize(this.packedInfo, Uint32Array);
+        }
+        let i = this.length++;
+        this.startTick[i] = sT;
+        let dur = Math.max(1, eT - sT);
+        dur = Math.min(dur, 0b11111111111111111111);
+        let tk = Math.min(tr, 0b111111111111);
+        this.durationTrack[i] = dur | (tk << 20);
+        this.packedInfo[i] = (p & 0b01111111) | ((v & 0b01111111) << 7) | ((ch & 0b00001111) << 14) | ((pr & 0b01111111) << 18) | ((b & 0b01111111) << 25);
+    }
+    getPitch(i) { return this.packedInfo[i] & 0b01111111; }
+    getVelocity(i) { return (this.packedInfo[i] >>> 7) & 0b01111111; }
+    getChannel(i) { return (this.packedInfo[i] >>> 14) & 0b00001111; }
+    getProgram(i) { return (this.packedInfo[i] >>> 18) & 0b01111111; }
+    getBank(i) { return (this.packedInfo[i] >>> 25) & 0b01111111; }
+    getDuration(i) { return this.durationTrack[i] & 0b11111111111111111111; }
+    getTrack(i) { return (this.durationTrack[i] >>> 20) & 0b111111111111; }
+    getEndTick(i) { return this.startTick[i] + (this.durationTrack[i] & 0b11111111111111111111); }
+
+    packAndSort() {
+        this.inPlaceSort(0, this.length - 1);
+        return this;
+    }
+
+    inPlaceSort(left, right) {
+        if (left >= right) return;
+        let pivot = this.startTick[(left + right) >> 1];
+        let i = left, j = right;
+        while (i <= j) {
+            while (this.startTick[i] < pivot) i++;
+            while (this.startTick[j] > pivot) j--;
+            if (i <= j) {
+                let tempST = this.startTick[i]; this.startTick[i] = this.startTick[j]; this.startTick[j] = tempST;
+                let tempDT = this.durationTrack[i]; this.durationTrack[i] = this.durationTrack[j]; this.durationTrack[j] = tempDT;
+                let tempPI = this.packedInfo[i]; this.packedInfo[i] = this.packedInfo[j]; this.packedInfo[j] = tempPI;
+                i++; j--;
+            }
+        }
+        this.inPlaceSort(left, j);
+        this.inPlaceSort(i, right);
+    }
+}
+class LightweightMIDIParser {
+  constructor() {
+    this.notes = new NoteBuffer(0);
+    this.parsedTempos = [];
+    this.activeTempos = [];
+    this.durMs = 0;
+    this.tracksCount = 0;
+    this.ppq = 1080;
+    this.channelEvents = Array.from({length: 16}, () => ({ pb: [], vol: [], pan: [], expr: [], mod: [] }));
+    this.noteStartMs = null;
+    this.noteEndMs = null;
+  }
+  tickToMs(tick) {
+      let left = 0, right = this.activeTempos.length - 1, ans = 0;
+      while(left <= right) {
+          let mid = (left + right) >> 1;
+          if(this.activeTempos[mid].tick <= tick) { ans = mid; left = mid + 1; }
+          else { right = mid - 1; }
+      }
+      let t = this.activeTempos[ans];
+      return t.ms + ((tick - t.tick) * (t.tempo / 1000)) / this.ppq;
+  }
+  msToTick(ms) {
+      let left = 0, right = this.activeTempos.length - 1, ans = 0;
+      while(left <= right) {
+          let mid = (left + right) >> 1;
+          if(this.activeTempos[mid].ms <= ms) { ans = mid; left = mid + 1; }
+          else { right = mid - 1; }
+      }
+      let t = this.activeTempos[ans];
+      return t.tick + ((ms - t.ms) * this.ppq) / (t.tempo / 1000);
+  }
+  
+  async parse(buffer, onProgress) {
+    let view = new DataView(buffer);
+    let bytes = new Uint8Array(buffer); 
+    
+    if (view.getUint32(0) !== 0b01001101010101000110100001100100) throw new Error("Not a valid MIDI file.");
+    this.ppq = view.getUint16(12);
+    this.tracksCount = view.getUint16(10);
+    
+    let estimatedSize = Math.max(2097152, Math.floor(buffer.byteLength / 3)); 
+    this.notes = new NoteBuffer(estimatedSize);
+    
+    this.parsedTempos = [];
+    this.channelEvents = Array.from({length: 16}, () => ({ pb: [], vol: [], pan: [], expr: [], mod: [] }));
+    let offset = 14;
+    let notesPushed = 0;
+    let chunkCounter = 0;
+    const CHUNK_SIZE = 2097152;
+    let programs = new Uint8Array(16);
+    let banks = new Uint8Array(16); 
+    let sustainPedal = new Uint8Array(16);
+    
+    for (let t = 0; t < this.tracksCount; t++) {
+      if (offset >= buffer.byteLength) break;
+      if (view.getUint32(offset) !== 0b01001101010101000111001001101011) { offset += 8 + view.getUint32(offset + 4); continue; }
+      const trackLen = view.getUint32(offset + 4);
+      let trackOffset = offset + 8;
+      const trackEnd = trackOffset + trackLen;
+      let currentTicks = 0;
+      let activeStart = new Int32Array(2048);
+      let activeVel = new Uint8Array(2048);
+      let activeChan = new Uint8Array(2048);
+      let activeTrack = new Uint16Array(2048);
+      let activeState = new Uint8Array(2048); 
+      let lastStatus = 0;
+      
+      while (trackOffset < trackEnd) {
+        let deltaTime = 0;
+        while (true) {
+          let byte = bytes[trackOffset++];
+          deltaTime = (deltaTime << 7) | (byte & 0b01111111);
+          if (!(byte & 0b10000000)) break;
+        }
+        currentTicks += deltaTime;
+        let status = bytes[trackOffset];
+        if (status < 0b10000000) { status = lastStatus; } else { lastStatus = status; trackOffset++; }
+        
+        if (status === 0b11111111) {
+          let metaType = bytes[trackOffset++];
+          let metaLen = 0;
+          while (true) { let byte = bytes[trackOffset++]; metaLen = (metaLen << 7) | (byte & 0b01111111); if (!(byte & 0b10000000)) break; }
+          if (metaType === 0b01010001 && metaLen === 3) {
+             let tempoUs = (bytes[trackOffset] << 16) | (bytes[trackOffset+1] << 8) | bytes[trackOffset+2];
+             this.parsedTempos.push({tick: currentTicks, tempo: tempoUs});
+          }
+          trackOffset += metaLen;
+        } else if (status === 0b11110000 || status === 0b11110111) {
+          let len = 0;
+          while (true) { let byte = bytes[trackOffset++]; len = (len << 7) | (byte & 0b01111111); if (!(byte & 0b10000000)) break; }
+          trackOffset += len;
+        } else {
+          let msgType = status & 0b11110000;
+          let channel = status & 0b00001111;
+          if (msgType === 0b10010000 || msgType === 0b10000000) {
+            let pitch = bytes[trackOffset++];
+            let velocity = bytes[trackOffset++];
+            let key = (channel << 7) | pitch;
+            if (msgType === 0b10010000 && velocity > 0) {
+              if (activeState[key] !== 0) {
+                this.notes.push(pitch, activeVel[key], activeChan[key], activeTrack[key], programs[channel], banks[channel], activeStart[key], currentTicks);
+                notesPushed++; chunkCounter++;
+              }
+              activeStart[key] = currentTicks; activeVel[key] = velocity; activeChan[key] = channel; activeTrack[key] = t; activeState[key] = 1;
+            } else {
+              if (activeState[key] === 1) {
+                if (sustainPedal[channel]) { 
+                    activeState[key] = 2;
+                } else {
+                    this.notes.push(pitch, activeVel[key], activeChan[key], activeTrack[key], programs[channel], banks[channel], activeStart[key], currentTicks);
+                    activeState[key] = 0;
+                    notesPushed++; chunkCounter++;
+                }
+              }
+            }
+          } else if (msgType === 0b11000000) {
+            programs[channel] = bytes[trackOffset++];
+          } else if (msgType === 0b10110000) {
+            let cc = bytes[trackOffset++]; let val = bytes[trackOffset++];
+            if (cc === 0 || (cc === 32 && banks[channel] === 0)) { banks[channel] = val; } 
+            else if (cc === 1) { this.channelEvents[channel].mod.push({tick: currentTicks, val}); }
+            else if (cc === 7) { this.channelEvents[channel].vol.push({tick: currentTicks, val}); }
+            else if (cc === 10) { this.channelEvents[channel].pan.push({tick: currentTicks, val}); }
+            else if (cc === 11) { this.channelEvents[channel].expr.push({tick: currentTicks, val}); }
+            else if (cc === 64) {
+                let isSustain = val >= 64; 
+                sustainPedal[channel] = isSustain;
+                if (!isSustain) {
+                    for (let i = 0; i < 2048; i++) {
+                        if (activeState[i] === 2 && (i >> 7) === channel) {
+                            this.notes.push(i & 0b01111111, activeVel[i], channel, activeTrack[i], programs[channel], banks[channel], activeStart[i], currentTicks);
+                            activeState[i] = 0;
+                            notesPushed++; chunkCounter++;
+                        }
+                    }
+                }
+            }
+          } else if (msgType === 0b11100000) {
+              let lsb = bytes[trackOffset++]; let msb = bytes[trackOffset++];
+              this.channelEvents[channel].pb.push({tick: currentTicks, val: ((msb << 7) | lsb) - 8192});
+          } else if (msgType === 0b10100000) { trackOffset += 2; } 
+            else if (msgType === 0b11010000) { trackOffset += 1; }
+        }
+        if (chunkCounter >= CHUNK_SIZE) { 
+            chunkCounter = 0; 
+            if (onProgress) onProgress(notesPushed, "Parsing Notes"); 
+            await new Promise(resolve => setTimeout(resolve, 0)); 
+        }
+      }
+      for (let i = 0; i < 2048; i++) {
+        if (activeState[i] !== 0 && activeTrack[i] === t) {
+          this.notes.push(i & 0b01111111, activeVel[i], activeChan[i], activeTrack[i], programs[activeChan[i]], banks[activeChan[i]], activeStart[i], currentTicks);
+          activeState[i] = 0;
+          notesPushed++;
+        }
+      }
+      offset += 8 + trackLen;
+    }
+    bytes = null; view = null;
+    if (onProgress) onProgress(notesPushed, "Compiling Blob");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    
+    this.notes.packAndSort(); 
+    this.parsedTempos.sort((a, b) => a.tick - b.tick);
+    await this.recalculateTimings(null, onProgress);
+  }
+  async recalculateTimings(overrideSeconds = null, onProgress = null) {
+    this.durMs = 0;
+    let activeTempos = [];
+    let curMs = 0, curTick = 0, curTempo = 500000;
+    for (let t of this.parsedTempos) {
+        if (t.tick > curTick) { curMs += ((t.tick - curTick) * (curTempo / 1000)) / this.ppq; curTick = t.tick; }
+        curTempo = t.tempo;
+        if (activeTempos.length > 0 && activeTempos[activeTempos.length - 1].tick === t.tick) activeTempos[activeTempos.length-1].tempo = curTempo;
+        else activeTempos.push({tick: curTick, tempo: curTempo, ms: curMs});
+    }
+    if (!activeTempos.length || activeTempos[0].tick !== 0) activeTempos.unshift({tick: 0, tempo: 500000, ms: 0});
+    this.activeTempos = activeTempos; 
+    
+    for (let ch = 0; ch < 16; ch++) {
+        ['pb', 'vol', 'pan', 'expr', 'mod'].forEach(type => {
+            for (let ev of this.channelEvents[ch][type]) { ev.ms = this.tickToMs(ev.tick); }
+        });
+    }
+    if (onProgress) onProgress(this.notes.length, "Calculating Timings");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    
+    let maxETick = 0;
+    for (let i = 0; i < this.notes.length; i++) {
+        if (this.notes.getEndTick(i) > maxETick) maxETick = this.notes.getEndTick(i);
+    }
+    this.durMs = this.tickToMs(maxETick);
+
+    // Cache note times in Float32Array to eliminate per-frame search/calculation overhead
+    this.noteStartMs = new Float32Array(this.notes.length);
+    this.noteEndMs = new Float32Array(this.notes.length);
+    for (let i = 0; i < this.notes.length; i++) {
+        this.noteStartMs[i] = this.tickToMs(this.notes.startTick[i]);
+        this.noteEndMs[i] = this.tickToMs(this.notes.getEndTick(i));
+    }
+  }
+}
+class CompactSF2Parser {
+  constructor() { this.reset(); }
+  reset() {
+    this.buffer = null; this.isLoaded = false;
+    this.sampleCache = new Map();
+    this.keyMap = new Map();
+  }
+  async load(file) {
+    this.reset();
+    this.buffer = await file.arrayBuffer();
+    this.isLoaded = true;
+    document.getElementById('sSf2').innerText = "Loaded";
+  }
+  findChunk(view, start, end, id) {
+    let off = start;
+    while(off < end) {
+      let type = String.fromCharCode(view.getUint8(off), view.getUint8(off+1), view.getUint8(off+2), view.getUint8(off+3));
+      let size = view.getUint32(off+4, true);
+      if(type === id) return {off: off+8, size};
+      off += 8 + size + (size%2);
+    }
+    return null;
+  }
+  readStructs(view, chunk, size, readFn) {
+    if (!chunk) return [];
+    let res = [];
+    for(let i=0; i<chunk.size/size; i++) res.push(readFn(chunk.off + i*size));
+    return res;
+  }
+  async preloadUsedSamples(notes) {
+    if (!this.isLoaded || notes.length === 0) return;
+    document.getElementById('sSf2').innerText = "Mapping Zones...";
+    const view = new DataView(this.buffer);
+    let offset = 12;
+    let smplOffset = 0, pdtaOffset = 0, pdtaSize = 0;
+    while (offset < this.buffer.byteLength) {
+      const type = String.fromCharCode(view.getUint8(offset), view.getUint8(offset+1), view.getUint8(offset+2), view.getUint8(offset+3));
+      const size = view.getUint32(offset + 4, true);
+      if (type === 'LIST') {
+          const listType = String.fromCharCode(view.getUint8(offset+8), view.getUint8(offset+9), view.getUint8(offset+10), view.getUint8(offset+11));
+          if (listType === 'sdta') { smplOffset = offset + 12; }
+          if (listType === 'pdta') { pdtaOffset = offset + 12; pdtaSize = size - 4; }
+      }
+      offset += 8 + size + (size % 2);
+    }
+    const pdtaEnd = pdtaOffset + pdtaSize;
+    const presets = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'phdr'), 38, o => ({ preset: view.getUint16(o+20, true), bank: view.getUint16(o+22, true), bagNdx: view.getUint16(o+24, true) }));
+    const pbags = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'pbag'), 4, o => ({ genNdx: view.getUint16(o, true) }));
+    const pgens = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'pgen'), 4, o => ({ oper: view.getUint16(o, true), val: view.getUint16(o+2, true) }));
+    const insts = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'inst'), 22, o => ({ bagNdx: view.getUint16(o+20, true) }));
+    const ibags = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'ibag'), 4, o => ({ genNdx: view.getUint16(o, true) }));
+    const igens = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'igen'), 4, o => ({ oper: view.getUint16(o, true), uval: view.getUint16(o+2, true) }));
+    const shdrs = this.readStructs(view, this.findChunk(view, pdtaOffset, pdtaEnd, 'shdr'), 46, o => ({ start: view.getUint32(o+20, true), end: view.getUint32(o+24, true), sampleRate: view.getUint32(o+36, true), origPitch: view.getUint8(o+40) }));
+    
+    const uniqueKeys = new Set();
+    for (let i = 0; i < notes.length; i++) {
+        uniqueKeys.add((notes.getBank(i) << 16) | (notes.getProgram(i) << 8) | notes.getPitch(i));
+    }
+    const offlineCtx = new OfflineAudioContext(1, 22050, 22050); 
+    for (let pkey of uniqueKeys) {
+        let bank = (pkey >> 16) & 0xFF, prog = (pkey >> 8) & 0xFF, pitch = pkey & 0xFF;
+        let preset = null, pIdx = 0;
+        for (let p=0; p<presets.length; p++) {
+           if (presets[p].preset === prog && (presets[p].bank === bank || presets[p].bank === 0)) { preset = presets[p]; pIdx = p; break; }
+        }
+        if (!preset) preset = presets[0];
+        let pbagStart = preset.bagNdx, pbagEnd = presets[pIdx+1] ? presets[pIdx+1].bagNdx : pbags.length;
+        let selectedInst = -1;
+        for(let i = pbagStart; i < pbagEnd; i++) {
+            let genStart = pbags[i].genNdx, genEnd = pbags[i+1] ? pbags[i+1].genNdx : pgens.length;
+            let pInRange = true, tempInst = -1;
+            for(let j = genStart; j < genEnd; j++) {
+                let g = pgens[j];
+                if (g.oper === 43 && (pitch < (g.val & 0xFF) || pitch > (g.val >> 8))) pInRange = false;
+                if (g.oper === 41) tempInst = g.val;
+            }
+            if (pInRange && tempInst !== -1) { selectedInst = tempInst; break; }
+        }
+        if (selectedInst === -1 || !insts[selectedInst]) continue;
+        let inst = insts[selectedInst], ibagStart = inst.bagNdx, ibagEnd = insts[selectedInst+1] ? insts[selectedInst+1].bagNdx : ibags.length;
+        let sampleId = -1, rootKey = -1, coarseTune = 0, fineTune = 0;
+        for(let i = ibagStart; i < ibagEnd; i++) {
+            let genStart = ibags[i].genNdx, genEnd = ibags[i+1] ? ibags[i+1].genNdx : igens.length;            
+            let inRange = true, tempSample = -1, tempRoot = -1, tempCoarse = 0, tempFine = 0;
+            for(let j = genStart; j < genEnd; j++) {
+                let g = igens[j];
+                if (g.oper === 43 && (pitch < (g.uval & 0xFF) || pitch > (g.uval >> 8))) inRange = false;
+                if (g.oper === 53) tempSample = g.uval;
+                if (g.oper === 58) tempRoot = g.uval;
+                if (g.oper === 51) tempCoarse = (g.uval << 16) >> 16;
+                if (g.oper === 52) tempFine = (g.uval << 16) >> 16;
+            }
+            if (inRange && tempSample !== -1) { sampleId = tempSample; rootKey = tempRoot; coarseTune = tempCoarse; fineTune = tempFine; break; }
+        }
+        if (sampleId !== -1 && shdrs[sampleId]) {
+            let shdr = shdrs[sampleId];
+            if (rootKey === -1) rootKey = shdr.origPitch;
+            if (!this.sampleCache.has(sampleId)) {
+                const byteStart = smplOffset + 8 + (shdr.start * 2), byteEnd = smplOffset + 8 + (shdr.end * 2);
+                if (byteEnd <= this.buffer.byteLength) {
+                    const length = shdr.end - shdr.start;
+                    const pcm = new Int16Array(this.buffer, byteStart, length);
+                    const sRate = (shdr.sampleRate >= 3000 && shdr.sampleRate <= 384000) ? shdr.sampleRate : 44100;
+                    const audioBuf = offlineCtx.createBuffer(1, length, sRate);    
+                    const channelData = audioBuf.getChannelData(0);
+                    for(let k=0; k<length; k++) channelData[k] = pcm[k] / 32768; 
+                    this.sampleCache.set(sampleId, audioBuf);
+                }
+            }
+            if (this.sampleCache.has(sampleId)) {
+                this.keyMap.set(pkey, { buffer: this.sampleCache.get(sampleId), rootKey, tuneCents: (coarseTune * 100) + fineTune });
+            }
+        }
+    }
+    document.getElementById('sSf2').innerText = "Ready (" + this.sampleCache.size + " smp)";
+  }
+}
+class ProgressiveAudioRenderer {
+  constructor(sf2Parser) {
+    this.sf2 = sf2Parser;
+    this.ctx = null; this.parser = null; this.notes = null; this.channelEvents = null;
+    this.chunkSize = 0.192; 
+    this.scheduledChunks = new Set();
+    this.nextChunkIndex = 0;
+    this.isPlaying = false;
+    this.audioStartTime = 0;
+    this.maxVoices = 128; 
+    this.bufferTime = 0; 
+    this.activeSources = [];
+    this.lookaheadTimer = null;
+  }
+  init(parser) {
+    this.parser = parser;
+    this.notes = parser.notes;
+    this.channelEvents = parser.channelEvents;
+    this.scheduledChunks.clear();
+    this.nextChunkIndex = 0;
+    this.stopActiveSources();
+    if (this.ctx) this.ctx.close();
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 22050});
+  }
+  async play(startMs) {
+    if (!this.sf2.isLoaded) return; 
+    if (!this.ctx) this.init(this.parser);
+    this.stop(); 
+    this.isPlaying = true;
+    this.nextChunkIndex = Math.floor((startMs / 1000) / this.chunkSize);
+    this.scheduledChunks.clear();
+    const startUiText = document.getElementById('sSf2').innerText;
+    document.getElementById('sSf2').innerText = "Buffering...";
+    let firstChunkBuffer = await this.renderChunk(this.nextChunkIndex);   
+    document.getElementById('sSf2').innerText = startUiText;
+    if (!this.isPlaying) return; 
+    await this.ctx.resume();
+    this.audioStartTime = this.ctx.currentTime + this.bufferTime - (startMs / 1000);
+    if (firstChunkBuffer) this.scheduleBuffer(firstChunkBuffer, this.nextChunkIndex);
+    this.scheduledChunks.add(this.nextChunkIndex++);
+    this.scheduleLookahead();
+  }
+  stop() {
+    this.isPlaying = false;
+    if (this.lookaheadTimer) clearTimeout(this.lookaheadTimer);
+    this.stopActiveSources();
+    if (this.ctx) this.ctx.suspend();
+  }
+  stopActiveSources() {
+    for (let src of this.activeSources) { try { src.stop(); src.disconnect(); } catch (e) {} }
+    this.activeSources = [];
+  }
+  async scheduleLookahead() {
+    if (!this.isPlaying) return;
+    const maxEndTimeSec = this.notes?.length ? this.parser.durMs / 1000 : 0;
+    const currentPlayTime = this.ctx.currentTime - this.audioStartTime;
+    
+    while ((this.nextChunkIndex * this.chunkSize) < currentPlayTime + 4) {
+        if (maxEndTimeSec > 0 && (this.nextChunkIndex * this.chunkSize) > maxEndTimeSec + 2) break;
+        if (!this.scheduledChunks.has(this.nextChunkIndex)) {
+            this.scheduledChunks.add(this.nextChunkIndex);
+            await this.renderAndScheduleChunk(this.nextChunkIndex);
+            await new Promise(r => setTimeout(r, 0)); 
+        }
+        if (!this.isPlaying) break; 
+        this.nextChunkIndex++;
+    }
+    if (this.isPlaying && (maxEndTimeSec === 0 || (this.nextChunkIndex * this.chunkSize) <= maxEndTimeSec + 2)) {
+        this.lookaheadTimer = setTimeout(() => this.scheduleLookahead(), 10);
+    }
+  }
+  binarySearchStart(targetTick) {
+      let l = 0, r = this.notes.length - 1, ans = this.notes.length;
+      while (l <= r) {
+          let mid = (l + r) >> 1;
+          if (this.notes.startTick[mid] < targetTick) l = mid + 1;
+          else { ans = mid; r = mid - 1; }
+      }
+      return ans;
+  }
+  async renderChunk(chunkIdx) {
+    const chunkStartSec = chunkIdx * this.chunkSize;
+    const chunkEndSec = chunkStartSec + this.chunkSize;
+    const startTick = this.parser.msToTick(chunkStartSec * 1000);
+    const endTick = this.parser.msToTick(chunkEndSec * 1000);
+    
+    let chunkNotes = [];
+    for (let i = this.binarySearchStart(startTick); i < this.notes.length; i++) {
+        if (this.notes.startTick[i] >= endTick) break;
+        chunkNotes.push(i);
+    }
+    if (chunkNotes.length === 0) return null;
+    if (chunkNotes.length > this.maxVoices) {
+        chunkNotes.sort((a, b) => this.notes.getVelocity(b) - this.notes.getVelocity(a));
+        chunkNotes.length = this.maxVoices;
+    }
+    
+    let maxEndMs = 0;
+    for (let idx of chunkNotes) maxEndMs = Math.max(maxEndMs, this.parser.tickToMs(this.notes.getEndTick(idx)));
+    const totalLen = Math.min((maxEndMs / 1000 - chunkStartSec) + 0.5, 10);
+    if (totalLen <= 0) return null;
+
+    const offCtx = new OfflineAudioContext(2, Math.ceil(totalLen * 22050), 22050);
+    const applyCurve = (param, events, noteStartSec, noteEndSec, globalStartMs, defaultVal, scaleFn) => {
+        let globalEndMs = globalStartMs + (noteEndSec - noteStartSec) * 1000, initialVal = defaultVal, startIdx = 0;
+        for (let i = 0; i < events.length; i++) {
+            if (events[i].ms <= globalStartMs) { initialVal = events[i].val; startIdx = i + 1; }
+            else break;
+        }
+        let safeStart = Math.max(0, noteStartSec);
+        param.setValueAtTime(scaleFn(initialVal), safeStart);
+        for (let i = startIdx; i < events.length; i++) {
+            let ev = events[i];
+            if (ev.ms > globalEndMs) break;
+            let evTime = noteStartSec + (ev.ms - globalStartMs) / 1000;
+            if (evTime > safeStart) {
+                param.linearRampToValueAtTime(scaleFn(ev.val), Math.max(safeStart + 0.001, evTime));
+            }
+        }
+    };
+
+    for (let idx of chunkNotes) {
+        const pkey = (this.notes.getBank(idx) << 16) | (this.notes.getProgram(idx) << 8) | this.notes.getPitch(idx);
+        const sampleInfo = this.sf2.keyMap.get(pkey);
+        if (!sampleInfo) continue;
+        
+        const sTime = this.parser.tickToMs(this.notes.startTick[idx]);
+        const eTime = this.parser.tickToMs(this.notes.getEndTick(idx));
+        const source = offCtx.createBufferSource();
+        source.buffer = sampleInfo.buffer;
+        
+        const noteStart = Math.max(0, (sTime / 1000) - chunkStartSec);
+        const noteDur = Math.max(0.05, (eTime - sTime) / 1000);
+        const noteEnd = noteStart + noteDur;
+        
+        const volGain = offCtx.createGain(), exprGain = offCtx.createGain(), noteGain = offCtx.createGain();
+        const panner = offCtx.createStereoPanner ? offCtx.createStereoPanner() : offCtx.createPanner();
+        const ch = this.notes.getChannel(idx), pitch = this.notes.getPitch(idx);
+        const cents = (pitch - sampleInfo.rootKey) * 100 + (sampleInfo.tuneCents || 0);
+
+        applyCurve(source.playbackRate, this.channelEvents[ch].pb, noteStart, noteEnd, sTime, 0, v => Math.pow(2, (cents + (v / 8192) * 200) / 1200));
+        applyCurve(volGain.gain, this.channelEvents[ch].vol, noteStart, noteEnd, sTime, 100, v => Math.pow(v / 127, 2));
+        applyCurve(exprGain.gain, this.channelEvents[ch].expr, noteStart, noteEnd, sTime, 127, v => Math.pow(v / 127, 2));
+        if (panner.pan) applyCurve(panner.pan, this.channelEvents[ch].pan, noteStart, noteEnd, sTime, 64, v => (v - 64) / 63);
+
+        const lfo = offCtx.createOscillator(); lfo.frequency.value = 5;
+        const lfoGain = offCtx.createGain();
+        applyCurve(lfoGain.gain, this.channelEvents[ch].mod, noteStart, noteEnd, sTime, 0, v => (v / 127) * 50);
+        lfo.connect(lfoGain); lfoGain.connect(source.detune);
+        lfo.start(noteStart); lfo.stop(noteEnd + 0.3);
+
+        const velGain = (this.notes.getVelocity(idx) / 127) * 0.4;
+        noteGain.gain.setValueAtTime(velGain, noteStart);
+        noteGain.gain.linearRampToValueAtTime(velGain * 0.8, noteEnd);
+        noteGain.gain.linearRampToValueAtTime(0.0001, noteEnd + 0.3);
+
+        source.connect(volGain); volGain.connect(exprGain); exprGain.connect(panner); panner.connect(noteGain); noteGain.connect(offCtx.destination);
+        source.start(noteStart); source.stop(noteEnd + 0.3);
+    }
+    return await offCtx.startRendering();
+  }
+  scheduleBuffer(renderedBuffer, chunkIdx) {
+    if (!this.isPlaying || !renderedBuffer) return;
+    const finalSource = this.ctx.createBufferSource();
+    finalSource.buffer = renderedBuffer;
+    finalSource.connect(this.ctx.destination);
+    this.activeSources.push(finalSource);
+    finalSource.onended = () => {
+        const idx = this.activeSources.indexOf(finalSource);
+        if (idx > -1) this.activeSources.splice(idx, 1);
+    };
+    const scheduleTime = this.audioStartTime + (chunkIdx * this.chunkSize);
+    const now = this.ctx.currentTime;
+    if (scheduleTime >= now) finalSource.start(scheduleTime);
+    else if (now - scheduleTime < renderedBuffer.duration) finalSource.start(now, now - scheduleTime);
+  }
+  async renderAndScheduleChunk(chunkIdx) {
+    this.scheduleBuffer(await this.renderChunk(chunkIdx), chunkIdx);
+  }
+}
+class ThreeVisualizer {
+  constructor() {
+    this.container = document.getElementById('vizCanvas');
+    this.parser = null; this.isPlaying = false; this.curMs = 0; this.lastTime = 0;
+    this.zSpeed = 10; this.renderDistSeconds = 5; this.MAX_INSTANCES = 64000;
+    this.colors = Array.from({length: 128}, (_, i) => new THREE.Color().setHSL(((i * 137.5) % 360) / 360, 1.0, 0.65));
+    this.fps = 0; this.frames = 0; this.lastFpsTime = performance.now();
+    this.cachedStartIdx = 0;
+    this.lastAssignedNotes = new Int32Array(this.MAX_INSTANCES).fill(-1);
+    this.initThreeJS();
+  }
+  initThreeJS() {
+    const wrap = document.getElementById('cvsWrap');
+    this.scene = new THREE.Scene();
+    this.scene.fog = new THREE.FogExp2(0x030305, 0.002); 
+    this.camera = new THREE.PerspectiveCamera(45, wrap.clientWidth / wrap.clientHeight, 1, 5000);
+    this.camera.position.set(0, 50, 80);
+    this.camera.lookAt(0, 0, -80);
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+    this.renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    this.renderer.setPixelRatio(1.5);
+    this.renderer.toneMapping = THREE.ReinhardToneMapping;
+    this.container.appendChild(this.renderer.domElement);
+    
+    this.composer = new THREE.EffectComposer(this.renderer);
+    this.composer.addPass(new THREE.RenderPass(this.scene, this.camera));
+    const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(wrap.clientWidth, wrap.clientHeight), 1.5, 0.4, 0.85);
+    bloom.threshold = 0; bloom.strength = 0.4; bloom.radius = 0.1;
+    this.composer.addPass(bloom);
+    
+    this.scene.add(new THREE.AmbientLight(0xffffff, 1));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2); dirLight.position.set(0, 100, 50);
+    this.scene.add(dirLight);
+
+    this.keyMaterials = []; this.keys = []; this.keyWidth = 0.8 ;
+    const whiteGeo = new THREE.BoxGeometry(0.6, 1.1, 10), blackGeo = new THREE.BoxGeometry(0.55, 1.3, 6);
+    for(let i = 0; i < 128; i++) {
+        const isBlack = [1, 3, 6, 8, 10].includes(i % 12);
+        const mat = new THREE.MeshLambertMaterial({ color: isBlack ? 0x050508 : 0x222233, emissive: new THREE.Color(0) });
+        this.keyMaterials.push(mat);
+        const mesh = new THREE.Mesh(isBlack ? blackGeo : whiteGeo, mat);
+        mesh.position.set((i - 60) * this.keyWidth, isBlack ? 0.5 : 0, isBlack ? -2.0 : 0);
+        this.scene.add(mesh);
+        this.keys.push(mesh);
+    }
+    
+    this.createInstancedMesh();
+    this.dummy = new THREE.Object3D();
+    window.addEventListener('resize', this.onWindowResize.bind(this), false);
+  }
+  createInstancedMesh() {
+    if (this.noteMesh) { this.scene.remove(this.noteMesh); this.noteMesh.dispose(); }
+    this.noteMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.8, 0.4, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), this.MAX_INSTANCES);
+    this.noteMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < this.MAX_INSTANCES; i++) this.noteMesh.setColorAt(i, new THREE.Color(0xffffff));
+    this.noteMesh.instanceColor.needsUpdate = true;
+    this.scene.add(this.noteMesh);
+  }
+  updateMaxInstances(newMax) {
+    if (this.MAX_INSTANCES !== newMax) { 
+        this.MAX_INSTANCES = newMax; 
+        this.lastAssignedNotes = new Int32Array(this.MAX_INSTANCES).fill(-1);
+        this.createInstancedMesh(); 
+    }
+  }
+  onWindowResize() {
+    const wrap = document.getElementById('cvsWrap');
+    if (!wrap.clientWidth) return;
+    this.camera.aspect = wrap.clientWidth / wrap.clientHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    this.composer?.setSize(wrap.clientWidth, wrap.clientHeight);
+  }
+  loadMIDI(parser) {
+    this.parser = parser; 
+    this.curMs = 0; 
+    this.isPlaying = false;
+    this.cachedStartIdx = 0;
+    this.lastAssignedNotes.fill(-1);
+  }
+  updateNotes() {
+    if (!this.parser || !this.parser.notes) return 0;
+    let instanceIdx = 0, poly = 0;
+    const zScale = -100 * this.zSpeed, cur = this.curMs;
+    const maxTime = cur + (this.renderDistSeconds * 1000);
+    const activeKeys = new Int8Array(128).fill(-1);
+    
+    const notes = this.parser.notes;
+    const startMsArr = this.parser.noteStartMs;
+    const endMsArr = this.parser.noteEndMs;
+    
+    // Fast sliding window pointer update instead of full binary search every frame
+    let startIdx = this.cachedStartIdx || 0;
+    const targetMinMs = cur - 20000;
+    while (startIdx < notes.length && endMsArr[startIdx] < targetMinMs) {
+        startIdx++;
+    }
+    while (startIdx > 0 && startMsArr[startIdx - 1] >= targetMinMs) {
+        startIdx--;
+    }
+    this.cachedStartIdx = startIdx;
+    
+    let colorChanged = false;
+
+    for (let i = startIdx; i < notes.length; i++) {
+        const sTime = startMsArr[i];
+        if (sTime > maxTime || instanceIdx >= this.MAX_INSTANCES) break;
+        const eTime = endMsArr[i];
+        if (eTime < cur) continue;
+        
+        const pitch = notes.getPitch(i);
+        const track = notes.getTrack(i);
+        
+        if (sTime <= cur && eTime >= cur) { activeKeys[pitch] = track; poly++; }
+        
+        const zStart = Math.min(0, (sTime - cur) * 0.001 * zScale);
+        const zEnd = Math.min(0, (eTime - cur) * 0.001 * zScale);
+        
+        this.dummy.position.set((pitch - 60) * this.keyWidth, 0, (zStart + zEnd) * 0.5);
+        this.dummy.scale.set(1, 1, Math.max(0.1, zStart - zEnd));
+        this.dummy.updateMatrix();
+        
+        this.noteMesh.setMatrixAt(instanceIdx, this.dummy.matrix);
+        
+        // Avoid setting color again if assigned note hasn't changed
+        if (this.lastAssignedNotes[instanceIdx] !== i) {
+            this.lastAssignedNotes[instanceIdx] = i;
+            this.noteMesh.setColorAt(instanceIdx, this.colors[track % this.colors.length]);
+            colorChanged = true;
+        }
+        
+        instanceIdx++;
+    }
+    
+    for (let i = instanceIdx; i < this.MAX_INSTANCES; i++) {
+        if (this.lastAssignedNotes[i] !== -1) {
+            this.lastAssignedNotes[i] = -1;
+        } else {
+            break;
+        }
+    }
+
+    this.noteMesh.count = instanceIdx;
+    this.noteMesh.instanceMatrix.needsUpdate = true;
+    if (colorChanged && instanceIdx > 0) {
+        this.noteMesh.instanceColor.needsUpdate = true;
+    }
+
+    for (let i = 0; i < 128; i++) {
+        const isActive = activeKeys[i] !== -1;
+        const isBlack = [1, 3, 6, 8, 10].includes(i % 12);
+        const mat = this.keyMaterials[i];
+        if (isActive) {
+            const trColor = this.colors[activeKeys[i] % this.colors.length];
+            mat.color.copy(trColor); mat.emissive.copy(trColor); mat.emissiveIntensity = 0.2;
+        } else {
+            mat.color.setHex(isBlack ? 0x050508 : 0x222233); mat.emissive.setHex(0);
+        }
+        this.keys[i].position.y = isBlack ? (isActive ? 0.3 : 0.5) : (isActive ? -0.2 : 0);
+    }
+    return poly;
+  }
+  renderFrame(time) {
+    if(!this.lastTime) this.lastTime = time;
+    const delta = time - this.lastTime; this.lastTime = time;
+    this.frames++;
+    const now = performance.now();
+    if (now - this.lastFpsTime >= 1000) {
+        this.fps = Math.round((this.frames * 1000) / (now - this.lastFpsTime));
+        this.frames = 0; this.lastFpsTime = now;
+        document.getElementById('sFPS').innerText = this.fps;
+    }
+    if (this.isPlaying && this.parser) {
+        if (this.curMs < 0) { 
+            this.curMs += delta; 
+            if (this.curMs >= 0 && sf2Parser.isLoaded && !audioEngine.isPlaying) {
+                audioEngine.play(0);
+            }
+        } else {
+            if (sf2Parser.isLoaded && audioEngine.ctx && audioEngine.isPlaying) {
+                 let synced = (audioEngine.ctx.currentTime - audioEngine.audioStartTime) * 1000;
+                 if (synced >= 0) this.curMs = synced; 
+            } else {
+                 this.curMs += delta;
+            }      
+        }
+        if (this.curMs > this.parser.durMs) { this.curMs = this.parser.durMs; this.isPlaying = false; audioEngine.stop(); }
+    }
+    if (this.parser) {
+        let currentBPM = 120;
+        if (this.parser.activeTempos) {
+            let idx = 0;
+            while(idx < this.parser.activeTempos.length - 1 && this.parser.activeTempos[idx+1].ms <= Math.max(0, this.curMs)) idx++;
+            if(this.parser.activeTempos[idx]) currentBPM = 60000000 / this.parser.activeTempos[idx].tempo;
+        }
+        document.getElementById('sB').innerText = Math.round(currentBPM);
+        document.getElementById('sPoly').innerText = this.updateNotes();
+        
+        let playedNotes = 0, l = 0, r = this.parser.notes.length - 1;
+        const curTick = this.parser.msToTick(this.curMs);
+        while (l <= r) {
+            let m = (l + r) >> 1;
+            if (this.parser.notes.startTick[m] <= curTick) { playedNotes = m + 1; l = m + 1; }
+            else { r = m - 1; }
+        }
+        document.getElementById('sN').innerText = `${playedNotes.toLocaleString()} / ${this.parser.notes.length.toLocaleString()}`;
+        document.getElementById('sD').innerText = `${formatTime(this.curMs)} / ${formatTime(this.parser.durMs)}`;
+    }
+    this.composer.render();
+    requestAnimationFrame(this.renderFrame.bind(this));
+  }
+}
+const sf2Parser = new CompactSF2Parser();
+const audioEngine = new ProgressiveAudioRenderer(sf2Parser);
+const viz = new ThreeVisualizer();
+const parser = new LightweightMIDIParser();
+function formatTime(ms) {
+  const sign = ms < 0 ? '-' : '';
+  const totalSec = Math.floor(Math.abs(ms) / 1000);
+  return `${sign}${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, '0')}`;
+}
+const bindSlider = (id, valId, suffix='') => {
+    document.getElementById(id).addEventListener('input', (e) => document.getElementById(valId).innerText = e.target.value + suffix);
+};
+bindSlider('pxRatioSlider', 'pxRatioVal');
+bindSlider('zSlider', 'zVal', 'x');
+bindSlider('dSlider', 'dVal', 's');
+bindSlider('chunkSlider', 'chunkVal', 's');
+bindSlider('polySlider', 'polyVal');
+bindSlider('maxInstSlider', 'maxInstVal');
+
+document.getElementById('loadSf2Btn').addEventListener('click', () => document.getElementById('sf2Input').click());
+document.getElementById('sf2Input').addEventListener('change', async (e) => {
+    if (e.target.files.length) {
+        document.getElementById('sf2Label').innerText = "LOADING...";
+        await sf2Parser.load(e.target.files[0]);
+        document.getElementById('sf2Label').innerText = "SF2 LOADED";
+        if (parser.notes && parser.notes.length > 0) await sf2Parser.preloadUsedSamples(parser.notes);
+    }
+});
+
+async function handleFile(file) {
+  if (!file) return;
+  const playBtn = document.getElementById('startPlayBtn');
+  playBtn.innerText = "PARSING MIDI..."; playBtn.disabled = true;
+  try {
+    const arrayBuffer = await file.arrayBuffer(); 
+    await parser.parse(arrayBuffer, (count) => { 
+      document.getElementById('sN').innerText = `${count.toLocaleString()} / 0`;
+    });   
+    document.getElementById('sT').innerText = parser.tracksCount;
+    document.getElementById('sB').innerText = parser.parsedTempos.length > 0 ? Math.round(60000000 / parser.parsedTempos[0].tempo) : 120;
+    document.getElementById('sD').innerText = `0:00 / ${formatTime(parser.durMs)}`;
+    if (sf2Parser.isLoaded) await sf2Parser.preloadUsedSamples(parser.notes);
+    audioEngine.init(parser);
+    viz.loadMIDI(parser);
+    document.getElementById('fileInput').value = '';
+    playBtn.innerHTML = '<i class="fas fa-play"></i> START PLAY';
+    playBtn.disabled = false;
+  } catch(e) {
+    alert("Error parsing MIDI: " + e.message);
+    playBtn.innerHTML = '<i class="fas fa-play"></i> START PLAY';
+  }
+}
+
+document.getElementById('loadBtn').addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', (e) => handleFile(e.target.files[0]));
+const dropZone = document.getElementById('uiScreen');
+dropZone.addEventListener('dragover', (e) => e.preventDefault());
+dropZone.addEventListener('drop', (e) => { e.preventDefault(); if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+
+document.getElementById('startPlayBtn').addEventListener('click', () => {
+  if(!viz.parser) return;
+  viz.renderer.setPixelRatio(parseFloat(document.getElementById('pxRatioSlider').value));
+  viz.zSpeed = parseFloat(document.getElementById('zSlider').value);
+  viz.renderDistSeconds = parseInt(document.getElementById('dSlider').value);
+  audioEngine.chunkSize = parseFloat(document.getElementById('chunkSlider').value);
+  audioEngine.maxVoices = parseInt(document.getElementById('polySlider').value);
+  viz.updateMaxInstances(parseInt(document.getElementById('maxInstSlider').value));
+  document.getElementById('uiScreen').classList.remove('active');
+  document.getElementById('playScreen').classList.add('active');
+  viz.onWindowResize(); 
+  
+  const startBPM = parser.parsedTempos.length > 0 ? 120 : 120;
+  viz.curMs = -((60000 / startBPM) * 0);
+  viz.isPlaying = true;
+  viz.cachedStartIdx = 0;
+  viz.lastAssignedNotes.fill(-1);
+
+  // Pre-load / buffer initial audio chunks immediately during pre-roll
+  if (sf2Parser.isLoaded) {
+      audioEngine.play(0);
+  }
+
+  if (!viz.lastTime) requestAnimationFrame(viz.renderFrame.bind(viz));
+});
+document.getElementById('exitBtn').addEventListener('click', () => {
+  viz.isPlaying = false;
+  audioEngine.stop();
+  document.getElementById('playScreen').classList.remove('active');
+  document.getElementById('uiScreen').classList.add('active');
+});
+</script>
+
+</body></html>
